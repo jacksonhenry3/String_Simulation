@@ -19,19 +19,16 @@ fn main() {
 
 struct Model {
     rope1: Rope,
-    rope2: Rope,
     _window: window::Id,
 }
 
 fn model(app: &App) -> Model {
     let _window = app.new_window().view(view).build().unwrap();
 
-    let my_rope = construct_rope(vector![0.0,0.0],200, 0.26, 307000.0, 25.0);
-    let my_rope_2 = construct_rope(vector![0.0,0.0], 100, 0.26, 307000.0, 25.0);
+    let my_rope = construct_rope(vector![25.0,0.0],50, 0.26, 30700000.0*3.0, 5.0);
 
     Model {
         rope1: my_rope,
-        rope2: my_rope_2,
         _window,
     }
 }
@@ -40,9 +37,10 @@ fn update(app: &App, model: &mut Model, _update: Update) {
     if app.mouse.buttons.left().is_down() {
         model.rope1.nodes[0].r =nannou_to_nalgebra(to_physics_coords(app.mouse.position(), app.window_rect()));
     }
+    let l = model.rope1.nodes.len()-1;
+    model.rope1.nodes[l].r.y = 0.30*(50.0*app.time).sin() as f64;
 
     model.rope1.step();
-    model.rope2.step();
 }
 
 fn view(app: &App, _model: &Model, frame: Frame) {
@@ -61,31 +59,16 @@ fn view(app: &App, _model: &Model, frame: Frame) {
 
     draw.path()
         .stroke()
-        .weight(2.0)
+        .weight(4.0)
+        // .caps_round()
         .points(points.clone())
         .color(STEELBLUE);
 
-    for pnt in points.clone() {
-        draw.ellipse().x_y(pnt.x, pnt.y).radius(1.0);
+    for pnt in points {
+        draw.ellipse().x_y(pnt.x, pnt.y).radius(2.0);
     }
 
-    let points = _model
-        .rope2
-        .nodes
-        .iter()
-        .map(|n| to_screen_coords(nalgebra_to_nannou(n.r), app.window_rect()))
-        .clone();
-
-    draw.path()
-        .stroke()
-        .weight(2.0)
-        .points(points.clone())
-        .color(STEELBLUE);
-
-    for pnt in points.clone() {
-        draw.ellipse().x_y(pnt.x, pnt.y).radius(1.0);
-    }
-
+    
     draw.to_frame(app, &frame).unwrap();
 }
 
@@ -111,7 +94,7 @@ fn construct_rope(origin: Vector2<f64>,num_segments: usize, mass: f64, spring_co
             let new_node = Node {
                 // id: node_index,
                 r: origin+vector![
-                    (rope.l) * (node_index as f64) / ((num_segments) as f64),
+                    4.0*(rope.l) * (node_index as f64) / ((num_segments) as f64),
                     0.0
                     
                 ],
@@ -167,6 +150,7 @@ struct Rope {
 
 impl Rope {
     fn step(&mut self) {
+        
         let new_data = self.next_destructured_state();
         self.update_from_destructured_state(new_data);
     }
@@ -204,11 +188,11 @@ impl Rope {
         let mut stepper = Dopri5::new(
             self,
             0.0,
-            0.001,
-            0.001,
+            0.000003,
+            0.0000003,
             self.destructured_state(),
-            1.0e-5,
-            1.0e-5,
+            1.0e-4,
+            1.0e-4,
         );
 
         _ = stepper.integrate();
@@ -220,9 +204,12 @@ impl Rope {
 impl ode_solvers::System<State> for &Rope {
     // Equations of motion of the system
     fn system(&self, _t: Time, state: &State, delta_state: &mut State) {
-        (1u64..((self.nodes.len()-1) as u64)).into_par_iter().for_each(|particle_index| {});
+
+
+        let a = (1u64..((self.nodes.len()-1) as u64)).into_par_iter().map(|particle_index| {
+            let particle_index = particle_index as usize;
         
-        for particle_index in 1..(self.nodes.len()-1) {
+        // for particle_index in 1..(self.nodes.len()-1) {
             let state_index = 4 * particle_index;
 
             let r = vector![state[state_index], state[state_index + 1]];
@@ -246,12 +233,21 @@ impl ode_solvers::System<State> for &Rope {
             // other forces can be added here (gravity, air resistance, etc.)
             force += vector![0.0, -980.0];
 
-            force -= 1.0*vector![state[state_index + 2],state[state_index + 3]];
+            force -= 25.0*vector![state[state_index + 2],state[state_index + 3]];
 
             let acceleration = force/ self.m;
+            // let velocity = vector![state[state_index + 2],state[state_index + 3]];
 
             // now we update the state
             // x velocity
+            (state_index,acceleration)
+            
+            
+            
+        });
+
+        for (state_index,acceleration) in a.collect::<Vec<_>>() {
+
             delta_state[state_index + 2] = acceleration.x;
 
             // y velocity
@@ -262,7 +258,14 @@ impl ode_solvers::System<State> for &Rope {
 
             // y position
             delta_state[state_index + 1] = state[state_index + 3];
+
         }
+
+
+    }
+
+    fn solout(&mut self, _x: f64, _y: &State, _dy: &State) -> bool {
+        false
     }
 }
 
